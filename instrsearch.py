@@ -1,21 +1,39 @@
 import argparse
 import pathlib
+import re
 import time
 from collections import deque
-from typing import List
+from typing import List, Dict
 
 import angr
 import cle
 
+pattern_dict: Dict[str, str] = {
+    '\\ANY': '[^\\s,]+',
+    '\\IMMH': '0x[a-fA-F0-9]+',
+    '\\IMMI': '[0-9]+',
+    '\\GP': '[^\\s,]+',
+    ' ': '\\s*?'
+}
 
-def validate_parse_pattern(pattern: str) -> List[List[str]]:
-    return [[]]
+
+def parse_pattern(pattern: str) -> List[str]:
+    result = []
+
+    for entry in pattern.split(';'):
+        for key in pattern_dict:
+            entry = entry.replace(key, pattern_dict[key])
+        result.append(entry)
+
+    return result
 
 
-def search(cfg: angr.analyses.CFGFast, node: angr.knowledge_plugins.cfg.CFGNode, pattern: List[List[str]]):
+def search(cfg: angr.analyses.CFGFast, node: angr.knowledge_plugins.cfg.CFGNode, pattern: List[str]):
     queue = deque()
     visited = set()
     visited_blocks = set()
+
+    # Initialization of BFS
     queue.append(node.addr)
     visited.add(node.addr)
 
@@ -24,9 +42,8 @@ def search(cfg: angr.analyses.CFGFast, node: angr.knowledge_plugins.cfg.CFGNode,
         func = cfg.kb.functions[queue.popleft()]  # Function
         node = cfg.model.get_any_node(func.addr)  # Function Node
 
-        # Iterate over basic blocks in function
+        # Iterate over basic blocks in function and search it
         for block in func.blocks:
-            # Do something with block ...
             if block.addr not in visited_blocks:
                 search_block(block.capstone, pattern)
                 visited_blocks.add(block.addr)
@@ -38,19 +55,41 @@ def search(cfg: angr.analyses.CFGFast, node: angr.knowledge_plugins.cfg.CFGNode,
                 visited.add(node.addr)
 
 
-def search_block(block: angr.block.CapstoneBlock, pattern: List[List[str]]):
-    matched = 0
-    index = 0
+def search_block(block: angr.block.CapstoneBlock, pattern: List[str]):
+    matched = 0  # Keep track of each matched pattern
+    index = 0  # Index of current instruction
+    back = False  # Go back to first matched instruction when needed
+
+    # List of capstone instructions
     instructions: List[angr.block.CapstoneInsn] = block.insns
 
+    # Iterate over each instruction until the last instruction is reached
     while index < len(instructions):
-        instruction = instructions[index]
+        instruction = instructions[index]  # Current instruction
 
-        # Do something with instruction ...
-        # ...
+        # If instruction matches -> increase matched instruction number
+        # Otherwise go back to first matched instruction + 1
+        if match_instruction(instruction, pattern[matched]):
+            matched += 1
+        elif matched > 0:
+            back = True
 
         index += 1
-        break
+
+        # Go back to first matched instruction + 1
+        if matched == len(pattern) or back:
+            if matched == len(pattern):
+                print(instruction)
+
+            index -= (matched - 1)
+            matched = 0
+            back = False
+
+
+def match_instruction(instruction: angr.block.CapstoneInsn, pattern: str) -> bool:
+    temp = instruction.mnemonic + ' ' + instruction.op_str
+
+    return re.search(pattern, temp) is not None
 
 
 def main():
@@ -71,7 +110,7 @@ def main():
     verbose: bool = args.get('verbose')
 
     # Validate instruction search pattern
-    pattern = validate_parse_pattern(pattern)
+    pattern = parse_pattern(pattern)
 
     # Create an angr instance
     angr_proj = angr.Project(path, load_options={'auto_load_libs': False}, main_opts={'base_addr': base, 'arch': arch})
@@ -95,7 +134,7 @@ def main():
     # Try to get main function
     symbol_main: cle.Symbol = angr_proj.loader.find_symbol('main')
     if symbol_main is None:
-        entry_node: angr.knowledge_plugins.cfg.CFGNode = cfg.model.get_any_node(angr_proj.entry or 0)
+        entry_node: angr.knowledge_plugins.cfg.CFGNode = cfg.model.get_any_node(angr_main.entry)
 
         if verbose:
             print('[*] Main function not detected; starting from entry address')
