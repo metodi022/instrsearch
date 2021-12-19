@@ -10,8 +10,8 @@ import cle
 
 pattern_dict: Dict[str, str] = {
     '\\ANY': '[^\\s,]+',
-    '\\IMMH': '0x[a-fA-F0-9]+',
-    '\\IMMI': '[0-9]+',
+    '\\ADDR': '0x[a-fA-F0-9]+',
+    '\\IMM': '[0-9]+',
     '\\GP': '[^\\s,]+',
 }
 
@@ -43,11 +43,10 @@ def search(cfg: angr.analyses.CFGFast, node: angr.knowledge_plugins.cfg.CFGNode,
         # Iterate over basic blocks in function and search it
         for block in func.blocks:
             if block.addr not in visited_blocks and block.size > 0:
-                block.pp()
                 search_block(block.capstone, pattern)
                 visited_blocks.add(block.addr)
 
-        # Iterate over successors
+        # Iterate over all call targets and visit them
         for endpoint in func.get_call_sites():
             endpoint = func.get_call_target(endpoint)
             if endpoint not in visited:
@@ -78,6 +77,9 @@ def search_block(block: angr.block.CapstoneBlock, pattern: List[str]):
 
         # Go back to first matched instruction + 1
         if matched == len(pattern) or back:
+            if matched == len(pattern):
+                print(instruction)
+
             index -= (matched - 1)
             matched = 0
             back = False
