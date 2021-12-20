@@ -2,7 +2,6 @@ import argparse
 import pathlib
 import re
 import time
-from collections import deque
 from typing import List, Dict
 
 import angr
@@ -27,31 +26,16 @@ def parse_pattern(pattern: str) -> List[str]:
     return result
 
 
-def search(cfg: angr.analyses.CFGFast, node: angr.knowledge_plugins.cfg.CFGNode, pattern: List[str]):
-    queue = deque()
-    visited_blocks = set()
+def search(cfg: angr.analyses.CFGFast, pattern: List[str]):
     visited = set()
 
-    # Initialization of BFS
-    queue.append(node.addr)
-    visited.add(node.addr)
-
-    # BFS in control flow graph
-    while len(queue) > 0:
-        func = cfg.kb.functions[queue.popleft()]  # Function
-
-        # Iterate over basic blocks in function and search it
-        for block in func.blocks:
-            if block.addr not in visited_blocks and block.size > 0:
+    # Iterate over each function
+    for func in cfg.kb.functions:
+        # Iterate over basic blocks of each function
+        for block in cfg.kb.functions[func].blocks:
+            if block.addr not in visited and block.size > 0:
                 search_block(block.capstone, pattern)
-                visited_blocks.add(block.addr)
-
-        # Iterate over all call targets and visit them
-        for endpoint in func.get_call_sites():
-            endpoint = func.get_call_target(endpoint)
-            if endpoint not in visited:
-                queue.append(endpoint)
-                visited.add(endpoint)
+                visited.add(block.addr)
 
 
 def search_block(block: angr.block.CapstoneBlock, pattern: List[str]):
@@ -86,8 +70,10 @@ def search_block(block: angr.block.CapstoneBlock, pattern: List[str]):
 
 
 def match_instruction(instruction: angr.block.CapstoneInsn, pattern: str) -> bool:
-    temp = instruction.mnemonic + ' ' + instruction.op_str
+    if pattern == pattern_dict['\\ANY']:
+        return True
 
+    temp = instruction.mnemonic + ' ' + instruction.op_str
     return re.search(pattern, temp) is not None
 
 
@@ -131,21 +117,8 @@ def main():
     cfg: angr.analyses.CFGFast = angr_proj.analyses.CFGFast()
     time.sleep(1)
 
-    # Try to get main function
-    symbol_main: cle.Symbol = angr_proj.loader.find_symbol('main')
-    if symbol_main is None:
-        entry_node: angr.knowledge_plugins.cfg.CFGNode = cfg.model.get_any_node(angr_main.entry)
-
-        if verbose:
-            print('[*] Main function not detected; starting from entry address')
-    else:
-        entry_node: angr.knowledge_plugins.cfg.CFGNode = cfg.model.get_any_node(symbol_main.rebased_addr)
-
-        if verbose:
-            print(f'[*] Main function detected at {hex(entry_node.addr)}; starting from main function')
-
     # Execute instruction pattern search
-    search(cfg, entry_node, pattern)
+    search(cfg, pattern)
 
 
 if __name__ == '__main__':
