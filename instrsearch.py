@@ -12,7 +12,7 @@ pattern_dict: Dict[str, str] = {
     "\\ADDR": "0x[a-fA-F0-9]+",
     "\\IMM": "[0-9]+",
     "\\GP": "(rax|eax|ax|ah|al|rbx|ebx|bx|bh|bl|rcx|ecx|cx|ch|cl|rdx|edx|dx|dh|dl|rsi|esi|rdi|edi|rbp|ebp|rsp|esp)",
-    "\\DEFER": "((word|dword|qword) ptr )?[0x[a-fA-F0-9]+]"
+    "\\DEFER": "((word|dword|qword) ptr )?\\[0x[a-fA-F0-9]+\\]"
 }
 
 
