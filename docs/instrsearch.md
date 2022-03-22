@@ -10,12 +10,13 @@ run the _instrsearch.py_ file with the required parameters.
 Following is a short description how to use the program:
 
 1. Specify the path to the binary with the _-p_ argument
-2. Specify the search pettern with the _-s_ argument
+2. Specify the search pattern with the _-s_ argument
+3. Specify the output file with the _-o_ argument or use verbose print mode with the _-v_ argument
 
 Run the program with the _-h_ argument to list additional optional arguments.
 
 # Search Pattern
-Every search pattern has to begin with the _\ADDR:\s_ string
+Every search pattern has to begin with the "_\ADDR:\s_" string
 
 The search pattern is any valid Python regular expression. The program expects _Intel instruction syntax_. For example
 "_\ADDR: test rax, rax_" will search for all instructions that have the mnemonic _test_ and the two operands _rax_.
