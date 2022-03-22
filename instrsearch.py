@@ -31,50 +31,55 @@ def parse_pattern(pattern: str) -> str:
     return '\n'.join(result)
 
 
-def search(cfg: angr.analyses.CFGFast, pattern: str, file: TextIO, cache: TextIO):
+def search(cfg: angr.analyses.CFGFast, pattern: str, file: TextIO, cache: TextIO, verbose: bool):
     visited = set()
 
     # Iterate over each function
-    for func in cfg.kb.functions:
+    for func_addr in cfg.kb.functions:
+        func: angr.knowledge_plugins.Function = cfg.kb.functions[func_addr]
+
         # Serialize function and cache it for future re-use
-        cache.write(cfg.kb.functions[func].serialize().hex() + '\n')
+        cache.write(func.serialize().hex() + '\n')
 
         # Iterate over basic blocks of each function
-        for block in cfg.kb.functions[func].blocks:
+        for block in func.blocks:
             if block.addr not in visited and block.size > 0:
-                search_block_full(block.capstone, pattern, file)
+                search_block_full(block.capstone, pattern, file, func.name, hex(func.addr), verbose)
                 visited.add(block.addr)
 
 
-def search_cached(angr_proj: angr.Project, pattern: str, file: TextIO, cache: TextIO):
+def search_cached(angr_proj: angr.Project, pattern: str, file: TextIO, cache: TextIO, verbose: bool):
     visited = set()
 
     # Iterate over each cached line
     for line in cache:
         # Deserialize function
-        func = angr.knowledge_plugins.Function.parse(bytes.fromhex(line), project=angr_proj,
-                                                     function_manager=angr_proj.kb.functions)
+        func: angr.knowledge_plugins.Function = angr.knowledge_plugins.Function.parse(bytes.fromhex(line),
+                                                                                      project=angr_proj,
+                                                                                      function_manager=angr_proj.kb.functions)
 
         # Iterate over basic blocks of each function
         for block in func.blocks:
             if block.addr not in visited and block.size > 0:
-                search_block_full(block.capstone, pattern, file)
+                search_block_full(block.capstone, pattern, file, func.name, hex(func.addr), verbose)
                 visited.add(block.addr)
 
 
-def search_block_full(block: angr.block.CapstoneBlock, pattern: str, file: TextIO):
+def search_block_full(block: angr.block.CapstoneBlock, pattern: str, file: TextIO, func_name: str, func_addr: str,
+                      verbose: bool):
     block = (str(block)).replace('\t', ' ')
 
     match = re.search(pattern, block)
     if match is not None:
         result = match.group(0)
 
+        if verbose:
+            print(func_addr + ' ' + func_name)
+            print(result + '\n')
+
         if file is not None:
             result = result.replace('\n', ';')
-            file.write(f"{result}\n")
-        else:
-            print('\t' + result.replace('\n', "\n\t"))
-            print()
+            file.write(f"{func_name}|{func_addr}|{result}\n")
 
 
 # Old code
@@ -139,6 +144,7 @@ def main():
     arch: str = args.get("arch") if ("arch" in args) else None
     output: pathlib.Path = args.get("output") if ("arch" in args) else None
     debug: bool = args.get("debug")
+    verbose: bool = args.get("verbose")
 
     # DEBUG
     if debug:
@@ -201,14 +207,14 @@ def main():
     # DEBUG
     if debug:
         print("[*] Search initiated " + str(datetime.now()))
-        if not file:
+        if verbose:
             print()
 
     # Execute instruction pattern search
     if cache.writable():
-        search(cfg, pattern, file, cache)
+        search(cfg, pattern, file, cache, verbose)
     else:
-        search_cached(angr_proj, pattern, file, cache)
+        search_cached(angr_proj, pattern, file, cache, verbose)
 
     # DEBUG TIME
     if debug:
