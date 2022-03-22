@@ -1,19 +1,12 @@
 # Description
-
----
 The instruction search project is a Python project which aims to find complex instruction patterns in a binary file. The
 project uses the [angr](https://github.com/angr/angr) library to facilitate binary analysis.
 
 # Requirements & Installation
-
----
-
 The project requires the angr library. It is recommended to create a virtual environment and install angr there. Then
 run the _instrsearch.py_ file with the required parameters.
 
 # Usage
-
----
 Following is a short description how to use the program:
 
 1. Specify the path to the binary with the _-p_ argument
@@ -22,7 +15,6 @@ Following is a short description how to use the program:
 Run the program with the _-h_ argument to list additional optional arguments.
 
 # Search Pattern
-
 Every search pattern has to begin with the _\ADDR:\s_ string
 
 The search pattern is any valid Python regular expression. The program expects _Intel instruction syntax_. For example
