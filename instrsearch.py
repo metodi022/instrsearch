@@ -14,7 +14,7 @@ pattern_dict: Dict[str, str] = {
     "\\ADDR": "(0x[a-fA-F0-9]+)",
     "\\IMM": "([0-9]+)",
     "\\GP": "(([re]?[abcd][xhl])|(r[01234589]{1,2}[dwb]?)|([re]?(si|di|bp|sp)l?))",
-    "\\DEREF": "(((word|dword|qword) ptr )?\\[[[^\\]]+]\\])",
+    "\\DEREF": "(((word|dword|qword) ptr )?\\[[^\\]]+\\])",
     "\\AVX": "([xyzXYZ]?(MM|mm)[0-9][0-5]?)"
 }
 
