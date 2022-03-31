@@ -9,7 +9,7 @@ The requirements of _instrsearch.py_ and additionally [matplotlib](https://matpl
 Following is a short description how to use the program:
 
 1. Specify the path to the binary with the _-p_ argument
-2. Specify the function address in hex with the _-s_ argument
+2. Specify the search function address in hex with the _-s_ argument
 3. Specify the output file with the _-o_ argument, use verbose print mode with the _-v_ argument or output an image of
 the callgraph with the _-i_ argument
 
