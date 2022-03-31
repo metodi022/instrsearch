@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import pathlib
 import re
+import time
 from datetime import datetime
 from typing import Dict, TextIO
 
@@ -68,8 +69,8 @@ def search_cached(angr_proj: angr.Project, pattern: str, file: TextIO, cache: Te
 def search_block_full(block: angr.block.CapstoneBlock, pattern: str, file: TextIO, func_name: str, func_addr: str,
                       verbose: bool):
     block = (str(block)).replace('\t', ' ')
-
     match = re.search(pattern, block)
+
     if match is not None:
         result = match.group(0)
 
@@ -129,7 +130,8 @@ def main():
     args_parser = argparse.ArgumentParser()
     args_parser.add_argument("-p", "--path", help="path to binary file", type=pathlib.Path, required=True)
     args_parser.add_argument("-s", "--search", help="instruction search pattern", type=str, required=True)
-    args_parser.add_argument("-b", "--base", help="base address of binary", type=(lambda x: int(x, 16)), required=False)
+    args_parser.add_argument("-b", "--base", help="base address of binary in hex", type=(lambda x: int(x, 16)),
+                             required=False)
     args_parser.add_argument("-a", "--arch", help="architecture of binary", type=str, required=False)
     args_parser.add_argument("-o", "--output", help="output query result in CSV format to file", type=pathlib.Path,
                              required=False)
@@ -140,9 +142,9 @@ def main():
     args = vars(args_parser.parse_args())
     path: pathlib.Path = args.get("path")
     pattern: str = args.get("search")
-    base: str = args.get("base") if ("base" in args) else None
-    arch: str = args.get("arch") if ("arch" in args) else None
-    output: pathlib.Path = args.get("output") if ("arch" in args) else None
+    base: str = args.get("base")
+    arch: str = args.get("arch")
+    output: pathlib.Path = args.get("output")
     debug: bool = args.get("debug")
     verbose: bool = args.get("verbose")
 
@@ -179,10 +181,12 @@ def main():
 
     # Create an angr instance
     angr_proj = angr.Project(path, load_options={"auto_load_libs": False}, main_opts={"base_addr": base, "arch": arch})
+    time.sleep(5.0)
 
     # Get entry object of binary
     angr_main: cle.Backend = angr_proj.loader.main_object
     if angr_main is None:
+        # DEBUG
         if debug:
             print("[!] Binary entry not detected ... exiting")
 
@@ -190,6 +194,7 @@ def main():
         cache.close()
         return
 
+    # DEBUG
     if debug:
         print(f"[*] Loaded {angr_proj.filename}, {angr_proj.arch.name} {angr_proj.arch.memory_endness}")
         print(f"[*] Entry object {angr_main}; entry address {hex(angr_main.entry)}")
@@ -197,26 +202,39 @@ def main():
     # Open output file if needed
     file: TextIO = open(output, 'w') if (output is not None) else None
 
-    # DEBUG
-    if debug:
-        print("[*] CFGFast analysis initiated " + str(datetime.now()))
-
-    # Create control flow graph for binary
-    cfg: angr.analyses.CFGFast = angr_proj.analyses.CFGFast() if cache.writable() else None
-
-    # DEBUG
-    if debug:
-        print("[*] Search initiated " + str(datetime.now()))
-        if verbose:
-            print()
-
-    # Execute instruction pattern search
     if cache.writable():
+        # DEBUG
+        if debug:
+            print("[*] CFGFast analysis initiated " + str(datetime.now()))
+
+        # Create control flow graph for binary
+        cfg: angr.analyses.CFGFast = angr_proj.analyses.CFGFast()
+
+        # Serialize control flow graph
+        graph_path = pathlib.Path("./cache/" + path.name + ".graph")
+        with open(graph_path, "w") as graph_cache:
+            for edge in angr_proj.kb.callgraph.edges:
+                func1 = angr_proj.kb.functions.get_by_addr(edge[0])
+                func2 = angr_proj.kb.functions.get_by_addr(edge[1])
+                graph_cache.write(func1.name + ',' + hex(edge[0]) + ';' + func2.name + ',' + hex(edge[1]) + '\n')
+
+        if debug:
+            print("[*] Search initiated " + str(datetime.now()))
+            if verbose:
+                print()
+
+        # Execute instruction pattern search
         search(cfg, pattern, file, cache, verbose)
     else:
+        # DEBUG
+        if debug:
+            print("[*] Search initiated " + str(datetime.now()))
+            if verbose:
+                print()
+
         search_cached(angr_proj, pattern, file, cache, verbose)
 
-    # DEBUG TIME
+    # DEBUG
     if debug:
         print("[*] Closing files " + str(datetime.now()))
 
