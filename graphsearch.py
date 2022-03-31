@@ -138,6 +138,9 @@ def main():
 
         return
 
+    if debug:
+        print("[*] Searching callgraph " + str(datetime.now()))
+
     # DFS in reverse
     for entry in networkx.edge_dfs(graph, address, orientation="reverse"):
         addr1 = hex(entry[0])
@@ -158,7 +161,7 @@ def main():
                       node_color=["tomato" if int(node[1], 16) == address else "cornflowerblue" for node in
                                   subgraph.nodes],
                       with_labels=True)
-        matplotlib.pyplot.margins(0.3)
+        matplotlib.pyplot.margins(0.35)
         matplotlib.pyplot.savefig(image)
 
 
