@@ -4,10 +4,11 @@ import pathlib
 import re
 import time
 from datetime import datetime
-from typing import Dict, TextIO
+from typing import Dict, TextIO, List
 
 import angr
 import cle
+import networkx
 
 pattern_dict: Dict[str, str] = {
     "\\ANYINS": "([^\\n\\r]+)",
@@ -32,12 +33,44 @@ def parse_pattern(pattern: str) -> str:
     return '\n'.join(result)
 
 
-def search(cfg: angr.analyses.CFGFast, pattern: str, file: TextIO, cache: TextIO, verbose: bool):
+def unwind(angr_proj: angr.Project, g: dict, entry: dict) -> dict:
+    if not entry:
+        return entry
+
+    new_entry: dict = dict()
+
+    for key in entry:
+        new_key = angr_proj.kb.functions.get_by_addr(key).name + " " + hex(key)
+        new_entry[new_key] = unwind(angr_proj, g, g[key])
+
+    return new_entry
+
+
+def unwind_cached(names: dict, g: dict, entry: dict) -> dict:
+    if not entry:
+        return entry
+
+    new_entry: dict = dict()
+
+    for key in entry:
+        new_key = names[key] + " " + hex(key)
+        new_entry[new_key] = unwind_cached(names, g, g[key])
+
+    return new_entry
+
+
+def search(angr_proj: angr.Project, cfg: angr.analyses.CFGFast, pattern: str, file: TextIO, cache: TextIO,
+           depth: int, verbose: bool):
     visited = set()
 
     # Iterate over each function
     for func_addr in cfg.kb.functions:
         func: angr.knowledge_plugins.Function = cfg.kb.functions[func_addr]
+
+        # Get callers
+        callers: dict = networkx.to_dict_of_dicts(
+            networkx.bfs_tree(angr_proj.kb.callgraph, func.addr, reverse=True, depth_limit=depth))
+        serialized_callers: dict = unwind(angr_proj, callers, callers[func.addr])
 
         # Serialize function and cache it for future re-use
         cache.write(func.serialize().hex() + '\n')
@@ -45,11 +78,12 @@ def search(cfg: angr.analyses.CFGFast, pattern: str, file: TextIO, cache: TextIO
         # Iterate over basic blocks of each function
         for block in func.blocks:
             if block.addr not in visited and block.size > 0:
-                search_block_full(block.capstone, pattern, file, func.name, hex(func.addr), verbose)
+                search_block_full(block.capstone, pattern, file, func.name, hex(func.addr), serialized_callers, verbose)
                 visited.add(block.addr)
 
 
-def search_cached(angr_proj: angr.Project, pattern: str, file: TextIO, cache: TextIO, verbose: bool):
+def search_cached(angr_proj: angr.Project, pattern: str, file: TextIO, cache: TextIO, graph: networkx.DiGraph,
+                  names: Dict[int, str], depth: int, verbose: bool):
     visited = set()
 
     # Iterate over each cached line
@@ -59,15 +93,19 @@ def search_cached(angr_proj: angr.Project, pattern: str, file: TextIO, cache: Te
                                                                                       project=angr_proj,
                                                                                       function_manager=angr_proj.kb.functions)
 
+        callers: dict = networkx.to_dict_of_dicts(networkx.bfs_tree(graph, func.addr, reverse=True,
+                                                                    depth_limit=depth)) if func.addr in graph.nodes else dict()
+        serialized_callers: dict = unwind_cached(names, callers, callers[func.addr]) if callers else dict()
+
         # Iterate over basic blocks of each function
         for block in func.blocks:
             if block.addr not in visited and block.size > 0:
-                search_block_full(block.capstone, pattern, file, func.name, hex(func.addr), verbose)
+                search_block_full(block.capstone, pattern, file, func.name, hex(func.addr), serialized_callers, verbose)
                 visited.add(block.addr)
 
 
 def search_block_full(block: angr.block.CapstoneBlock, pattern: str, file: TextIO, func_name: str, func_addr: str,
-                      verbose: bool):
+                      callers, verbose: bool):
     block = (str(block)).replace('\t', ' ')
     match = re.search(pattern, block)
 
@@ -75,12 +113,12 @@ def search_block_full(block: angr.block.CapstoneBlock, pattern: str, file: TextI
         result = match.group(0)
 
         if verbose:
-            print(func_addr + ' ' + func_name)
+            print(func_addr + ' ' + func_name + " <- " + str([caller for caller in callers]))
             print(result + '\n')
 
         if file is not None:
             result = result.replace('\n', ';')
-            file.write(f"{func_name}|{func_addr}|{result}\n")
+            file.write(f"{func_name}|{func_addr}|{callers}|{result}\n")
 
 
 # Old code
@@ -130,6 +168,7 @@ def main():
     args_parser = argparse.ArgumentParser()
     args_parser.add_argument("-p", "--path", help="path to binary file", type=pathlib.Path, required=True)
     args_parser.add_argument("-s", "--search", help="instruction search pattern", type=str, required=True)
+    args_parser.add_argument("-t", "--depth", help="caller depth output", type=int, required=False)
     args_parser.add_argument("-b", "--base", help="base address of binary in hex", type=(lambda x: int(x, 16)),
                              required=False)
     args_parser.add_argument("-a", "--arch", help="architecture of binary", type=str, required=False)
@@ -142,6 +181,7 @@ def main():
     args = vars(args_parser.parse_args())
     path: pathlib.Path = args.get("path")
     pattern: str = args.get("search")
+    depth: int = args.get("depth")
     base: str = args.get("base")
     arch: str = args.get("arch")
     output: pathlib.Path = args.get("output")
@@ -216,7 +256,7 @@ def main():
             for edge in angr_proj.kb.callgraph.edges:
                 func1 = angr_proj.kb.functions.get_by_addr(edge[0])
                 func2 = angr_proj.kb.functions.get_by_addr(edge[1])
-                graph_cache.write(func1.name + ',' + hex(edge[0]) + ';' + func2.name + ',' + hex(edge[1]) + '\n')
+                graph_cache.write(func1.name + ' ' + hex(edge[0]) + ';' + func2.name + ' ' + hex(edge[1]) + '\n')
 
         if debug:
             print("[*] Search initiated " + str(datetime.now()))
@@ -224,7 +264,7 @@ def main():
                 print()
 
         # Execute instruction pattern search
-        search(cfg, pattern, file, cache, verbose)
+        search(angr_proj, cfg, pattern, file, cache, 1 if (depth is None or depth <= 0) else depth, verbose)
     else:
         # DEBUG
         if debug:
@@ -232,7 +272,22 @@ def main():
             if verbose:
                 print()
 
-        search_cached(angr_proj, pattern, file, cache, verbose)
+        # Import callgraph
+        graph_path: pathlib.Path = pathlib.Path("./cache/" + path.name + ".graph")
+        graph: networkx.DiGraph = networkx.DiGraph()
+        names = dict()
+        with open(graph_path, "r") as graph_cache:
+            for line in graph_cache:
+                line = line.strip().split(';')
+                line1: List[str] = line[0].split(' ')
+                line2: List[str] = line[1].split(' ')
+
+                graph.add_edge(int(line1[1], 16), int(line2[1], 16))
+                names[int(line1[1], 16)] = line1[0]
+                names[int(line2[1], 16)] = line2[0]
+
+        search_cached(angr_proj, pattern, file, cache, graph, names, 1 if (depth is None or depth <= 0) else depth,
+                      verbose)
 
     # DEBUG
     if debug:

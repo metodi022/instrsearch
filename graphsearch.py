@@ -86,7 +86,7 @@ def main():
         print(f"[*] Loaded {angr_proj.filename}, {angr_proj.arch.name} {angr_proj.arch.memory_endness}")
         print(f"[*] Entry object {angr_main}; entry address {hex(angr_main.entry)}")
 
-    graph_path = pathlib.Path("./cache/" + path.name + ".graph")
+    graph_path: pathlib.Path = pathlib.Path("./cache/" + path.name + ".graph")
 
     # Run analysis if needed
     if cache.writable():
@@ -101,7 +101,7 @@ def main():
             for edge in angr_proj.kb.callgraph.edges:
                 func1 = angr_proj.kb.functions.get_by_addr(edge[0])
                 func2 = angr_proj.kb.functions.get_by_addr(edge[1])
-                graph_cache.write(func1.name + ',' + hex(edge[0]) + ';' + func2.name + ',' + hex(edge[1]) + '\n')
+                graph_cache.write(func1.name + ' ' + hex(edge[0]) + ';' + func2.name + ' ' + hex(edge[1]) + '\n')
 
         # Serialize functions
         for func_addr in cfg.kb.functions:
@@ -121,8 +121,8 @@ def main():
     with open(graph_path, "r") as graph_cache:
         for line in graph_cache:
             line = line.strip().split(';')
-            line1: List[str] = line[0].split(',')
-            line2: List[str] = line[1].split(',')
+            line1: List[str] = line[0].split(' ')
+            line2: List[str] = line[1].split(' ')
 
             graph.add_edge(int(line1[1], 16), int(line2[1], 16))
             names[int(line1[1], 16)] = line1[0]
@@ -142,7 +142,7 @@ def main():
         print("[*] Searching callgraph " + str(datetime.now()))
 
     # DFS in reverse
-    for entry in networkx.edge_dfs(graph, address, orientation="reverse"):
+    for entry in networkx.bfs_edges(graph, address, reverse=True):
         addr1 = hex(entry[0])
         addr2 = hex(entry[1])
         subgraph.add_edge((names[entry[0]], addr1), (names[entry[1]], addr2))
